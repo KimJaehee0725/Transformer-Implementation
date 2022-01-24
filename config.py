@@ -1,7 +1,8 @@
 class Config():
     def __init__(self) -> None:
         self.vocab_size = 30000
-        self.model_dim = 512
+        self.embed_dim = 512
+        self.model_dim = 768
         self.pad_idx = 3
         self.max_len = 512
         
