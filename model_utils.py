@@ -119,11 +119,13 @@ class LinearTransformSublayer(nn.Module):
         self.model_dim = args.model_dim
 
         self.widen_layer = nn.Linear(self.model_dim, self.ffnn_dim)
+        self.activation_function = nn.ReLU()
         self.narrow_layer = nn.Linear(self.ffnn_dim, self.model_dim)
     
     def forward(self, input_seq) : # input_seq :(batch_size, seq_len, model_dim)
         widen_result = self.widen_layer(input_seq) # widen_result : (batch_size, seq_len, ffnn_dim)
-        return self.narrow_layer(widen_result) # (batch_size, seq_len, model_dim)
+        widen_activation_pass = self.activation_function(widen_result)
+        return self.narrow_layer(widen_activation_pass) # (batch_size, seq_len, model_dim)
 
 
 class CrossAttentionLayer(nn.Module):
