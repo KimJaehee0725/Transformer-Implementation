@@ -1,6 +1,6 @@
-from ast import AsyncFunctionDef
 import torch 
 from torch import nn
+import torch.nn.functional as F 
 from config import Config
 from math import sqrt, sin, cos
 
@@ -12,28 +12,38 @@ class EmbeddingLayer(nn.Module):
         self.token_embedding = TokenEmbeddingSubLayer(args)
         self.PEembedding = PositionalEmbeddingSubLayer(args)
         self.embedding = nn.Sequential(self.token_embedding, self.PEembedding)
-    
-    def forward(self, token_tensor): # token_tensor :(batch, seq_len)
-        output = self.embedding(token_tensor)
-        return output # output : (batch, seq_len, model_dim)
+        self.dropout_layer = nn.Dropout(args.embedding_dropout_ratio)
+        self.pad_id = args.pad_id
+
+    def forward(self, token_tensor, pad_idxs = None): # token_tensor :(batch, seq_len)
+        summed = self.embedding(token_tensor)
+        output = self.dropout_layer(summed)
+
+        if pad_idxs == None:
+            index_tensor = torch.tensor([[i for i in range(token_tensor.size()[1])] for batch in range(token_tensor.size()[0])])
+            masking = (token_tensor != self.pad_id)
+            not_pad_mask = index_tensor*masking
+            pad_idxs = torch.max(not_pad_mask, dim = 1).values + 1
+            
+
+        return output, pad_idxs # output : (batch, seq_len, embed_dim) pad_idxs :(batch_size, 1)
 
 class TokenEmbeddingSubLayer(nn.Module):
     def __init__(self, args):
         super().__init__()
         self.vocab_size = args.vocab_size
-        self.embedding_dim = args.model_dim
-        self.pad_idx = args.pad_idx
+        self.embedding_dim = args.embed_dim
+        self.pad_id = args.pad_id
 
         self.Embedding_layer = nn.Embedding(
             num_embeddings = self.vocab_size, 
             embedding_dim = self.embedding_dim,
-            padding_idx = self.pad_idx)
+            padding_idx = self.pad_id)
         
     def forward(self, token_tensor):
         output = self.Embedding_layer(token_tensor)
         output = output * sqrt(self.embedding_dim)
         return output
-
 
 class PositionalEmbeddingSubLayer(nn.Module):
     def __init__(self, args):
@@ -41,60 +51,57 @@ class PositionalEmbeddingSubLayer(nn.Module):
         if args.is_sinusoidal == True:
             self.PEEmbedding = self.makeSinusiodalEmbedding(args)
         else :
-            self.PEEmbedding = torch.rand((args.max_len, args.model_dim))
+            self.PEEmbedding = torch.rand((args.max_len, args.embed_dim))
     
     def forward(self, token_embedding):
         return token_embedding + torch.tensor(self.PEEmbedding) #토치 변수 선언(for autograd 이용)
     
     def makeSinusiodalEmbedding(self, args):
-        embedding_tensor = torch.zeros(args.max_len, args.model_dim)
+        embedding_tensor = torch.zeros(args.max_len, args.embed_dim)
 
-        even_max = (args.model_dim + 1)//2
-        odd_max = args.model_dim//2
+        even_max = (args.embed_dim + 1)//2
+        odd_max = args.embed_dim//2
 
         for pos in range(args.max_len):
             pos_even = [pos]*even_max
             # pos_even = torch.full(size = (1, even_max), fill_value = pos)
-            pos_even = torch.tensor([sin(elem/10000**(2*num/args.model_dim)) for num, elem in enumerate(pos_even)])
+            pos_even = torch.tensor([sin(elem/10000**(2*num/args.embed_dim)) for num, elem in enumerate(pos_even)])
             embedding_tensor[pos, 0::2] = pos_even
 
             pos_odd = [pos]*odd_max
             # pos_odd = torch.full(size = (1, odd_max), fill_value = pos)
-            pos_odd = torch.tensor([cos(elem/10000**(2*num/args.model_dim)) for num, elem in enumerate(pos_odd)])
+            pos_odd = torch.tensor([cos(elem/10000**(2*num/args.embed_dim)) for num, elem in enumerate(pos_odd)])
             embedding_tensor[pos, 1::2] = pos_odd
 
         return embedding_tensor
     
-class EncoderBlock(nn.Module):
-    def __init__(self, args):
+class MultiHeadSelfAttentionSubLayer(nn.Module): # Q, K, V : (batch_size, seq_len, model_dim)
+    def __init__(self, args) :
         super().__init__()
-        self.projection = QKVProjectionSublayer(args)
-        self.residual_block_1 = ResidualConnectionSubLayer(args)
-        self.linear_transformation = LinearTransformSublayer(args)
-        self.residual_block_2 = ResidualConnectionSubLayer(args)
+        self.ffnn_layer = nn.Linear(args.model_dim, args.embed_dim)
 
-
-    def forward(self, input_seq): # input_seq : (batch, seq_len , model_dim)
-        Q, K, V = self.projection(input_seq) # Q, K, V :(batch, seq_len, model_dim)
-        attention_result = self.MultiHeadSelfAttention(Q, K, V) # attention_result : (batch, seq_len, model_dim)
-        normalized_result_1 = self.residual_block_1(attention_result, input_seq) # normalized_result_1  : (batch, seq_len, model_dim)
-        linear_transformed_result = self.linear_transformation(normalized_result_1) # linear_transformed_result :(batch, seq_len, model_dim)
-        normalized_result_2 = self.residual_block_2(linear_transformed_result, normalized_result_1) # normalized_result_2 : (batch, seq_len, model_dim)
-        return normalized_result_2
-
-    def MultiHeadSelfAttention(self, Q, K, V): # Q, K, V : (batch_size, seq_len, model_dim)
+    def forward(self, Q, K, V, pad_idxs):
         model_dim = Q.size()[2]
         K_transposed = K.transpose(1, 2) # K_transposed : (batch_size, model_dim, seq_len)
-        attention_matrix = torch.matmul(Q, K_transposed)
-        scaled_attention_matrix = attention_matrix/sqrt(model_dim) # scaled_attention_matrix : (batch_size, seq_len, seq_len)
-        return torch.matmul(scaled_attention_matrix, V)
+        attention_score_matrix = torch.matmul(Q, K_transposed)
+        attention_score_matrix= attention_score_matrix/sqrt(model_dim) # scaled_attention_score : (batch_size, seq_len, seq_len)
+        attention_score_matrix = self.pad_masking(pad_idxs, attention_score_matrix)
+        attention_matrix = F.softmax(attention_score_matrix, dim = 1)
+        attention_result = torch.matmul(attention_matrix, V)
+        return self.ffnn_layer(attention_result)
+
+    def pad_masking(self, pad_idxs, attention_score, not_mask_sign = -1e13):
+        for num, pad_start in enumerate(pad_idxs) : # 각 배치마다 수행
+            attention_score[num, pad_start:, pad_start:] = not_mask_sign
+            print(attention_score[num, pad_start:, pad_start:])
+        return attention_score
 
 class QKVProjectionSublayer(nn.Module):
     def __init__(self, args):
         super().__init__()
-        self.QueryProjection = nn.Linear(args.model_dim, args.model_dim)
-        self.KeyProjection = nn.Linear(args.model_dim, args.model_dim)
-        self.ValueProjection = nn.Linear(args.model_dim, args.model_dim)
+        self.QueryProjection = nn.Linear(args.embed_dim, args.model_dim)
+        self.KeyProjection = nn.Linear(args.embed_dim, args.model_dim)
+        self.ValueProjection = nn.Linear(args.embed_dim, args.model_dim)
     
     def forward(self, input_seq) : # input_seq : (batch, seq_len, input_dim)
         Q = self.QueryProjection(input_seq) # Q, K, V : (batch, seq_len, model_dim)
@@ -106,9 +113,11 @@ class ResidualConnectionSubLayer(nn.Module):
     def __init__(self, args):
         super().__init__()
         self.norm_layer = nn.LayerNorm(args.model_dim)
+        self.dropout_layer = nn.Dropout(args.model_dropout_ratio)
 
-    def forward(self, transformed, original) : # transformed : (batch_size, seq_len, model_dim) original : (batch_size, seq_len, model_dim)
-        connected = original + transformed # connected : (batch_size, seq_len, model_dim)
+    def forward(self, transformed, original) : # transformed : (batch_size, seq_len, embed_dim) original : (batch_size, seq_len, embed_dim)
+        dropped = self.dropout_layer(transformed)
+        connected = original + dropped # connected : (batch_size, seq_len, embed_dim)
         normalized = self.norm_layer(connected)
         return normalized
     
@@ -117,21 +126,25 @@ class LinearTransformSublayer(nn.Module):
         super().__init__()
         self.ffnn_dim = args.ffnn_dim
         self.model_dim = args.model_dim
+        self.embdding_dim = args.embed_dim
 
         self.widen_layer = nn.Linear(self.model_dim, self.ffnn_dim)
         self.activation_function = nn.ReLU()
-        self.narrow_layer = nn.Linear(self.ffnn_dim, self.model_dim)
+        self.narrow_layer = nn.Linear(self.ffnn_dim, self.embdding_dim)
     
     def forward(self, input_seq) : # input_seq :(batch_size, seq_len, model_dim)
         widen_result = self.widen_layer(input_seq) # widen_result : (batch_size, seq_len, ffnn_dim)
         widen_activation_pass = self.activation_function(widen_result)
-        return self.narrow_layer(widen_activation_pass) # (batch_size, seq_len, model_dim)
+        return self.narrow_layer(widen_activation_pass) # (batch_size, seq_len, embdding_dim)
 
 
 class CrossAttentionLayer(nn.Module):
     pass
 
-class MaskedAttentionLayer(nn.Module):
+class MaskedSelfAttentionLayer(nn.Module):
+    def __init__(self, args):
+        super().__init__()
+        
     pass
 
 class DecoderHeadLayer(nn.Module):
