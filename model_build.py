@@ -15,6 +15,7 @@ class Transformer(nn.Module) :
         self.model_head = DecoderHeadLayer(args)
     
     def forward(self, input_seq, input_pad_idx, target_seq, target_pad_idx, train = True) :
+        print(input_pad_idx.device)
         embedded_input, input_pad_idx = self.InputEmbedding(input_seq, input_pad_idx)
         encoder_output = embedded_input
         for encoder_block in self.EncoderBlocks:
