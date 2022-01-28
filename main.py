@@ -4,6 +4,7 @@ from konlpy.tag import Mecab
 from numpy import source
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torchtext.data.utils import get_tokenizer
 from torch.utils.data import DataLoader
@@ -40,31 +41,34 @@ args.vocab_size = len(korean_vocab)
 args.target_vocab_size = len(english_vocab)
 
 model = Transformer(args)
-device = torch.device("cuda")
-model = model.to(device)
-# optimizer = Adam(model.parameters(), lr = 1e-3)
 
-scheduler = lr_scheduler.CosineAnnealingLR(optimizer = optimizer, T_max = 50, eta_min = 0)
+def train(model, dataloader, args):    
+    device = torch.device("cuda")
+    model.to(device)
+    model.train()
+    optimizer = Adam(model.parameters(), lr = 1e-3)
+    scheduler = lr_scheduler.CosineAnnealingLR(optimizer = optimizer, T_max = 50, eta_min = 0)
 
-def train(model, dataloader, args, optimizer, scheduler):    
-    for (source_tensor, source_pad), (target_tensor, target_pad) in dataloader:
-        device = torch.device("cuda")
+    criterion = nn.NLLLoss(ignore_index = args.pad_id)
+    for epoch in range(args.epochs):
+        for (source_tensor, source_pad), (target_tensor, target_pad) in dataloader:
+            source_tensor = source_tensor.to(device)
+            source_pad_tensor = torch.tensor(source_pad, device = device)
+            
+            target_input = deepcopy(target_tensor[:, :-1])
+            target_output = deepcopy(target_tensor[:, 1:])
+            
+            target_input = target_input.to(device)
+            target_output = target_output.to(device)
+            target_pad_tensor = torch.tensor(target_pad, device = device)
 
-        source_tensor = source_tensor.to(device)
-        source_pad_tensor = torch.tensor(source_pad, device = device)
-        
-        target_input = deepcopy(target_tensor[:, :-1])
-        target_output = deepcopy(target_tensor[:, 1:])
-        
-        target_input = target_input.to(device)
-        target_output = target_output.to(device)
-        target_pad_tensor = torch.tensor(target_pad, device = device)
+            output = model(source_tensor, source_pad_tensor, target_input, target_pad_tensor)
 
-        output = model(source_tensor, source_pad_tensor, target_input, target_pad_tensor)
-        print("x")
+            loss = criterion(output.transpose(1, 2), target_output)
+            optimizer.zero_grad()
+            loss.backward()
 
-        loss = F.nll_loss(output, target_output)
-        print(loss)
-        break
+            optimizer.step()
+            scheduler.step()
 
-train(model, dataloader, args, optimizer, scheduler)
+train(model, dataloader, args)

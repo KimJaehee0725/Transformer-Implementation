@@ -49,9 +49,10 @@ class PositionalEmbeddingSubLayer(nn.Module):
     def __init__(self, args):
         super().__init__()
         if args.is_sinusoidal == True:
-            self.PEEmbedding = self.makeSinusiodalEmbedding(args)
+            PEEmbedding = self.makeSinusiodalEmbedding(args)
         else :
-            self.PEEmbedding = torch.rand((args.max_len, args.embed_dim))
+            PEEmbedding = torch.rand((args.max_len, args.embed_dim))
+        self.PEEmbedding = nn.Parameter(PEEmbedding)
     
     def forward(self, token_embedding):
         return token_embedding + self.PEEmbedding #토치 변수 선언(for autograd 이용)

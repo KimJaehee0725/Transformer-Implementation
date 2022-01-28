@@ -18,6 +18,7 @@ class Config():
         self.pad_id = 3
 
         self.batch_size = 32
+        self.epochs = 20
 
         self.vocab_size = 3000
         self.target_vocab_size = 3000
