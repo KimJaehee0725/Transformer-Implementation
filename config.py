@@ -19,6 +19,7 @@ class Config():
 
         self.batch_size = 32
         self.epochs = 20
+        self.valid_epoch = 1
 
         self.vocab_size = 3000
         self.target_vocab_size = 3000
