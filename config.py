@@ -17,9 +17,16 @@ class Config():
 
         self.pad_id = 3
 
-        self.batch_size = 32
+        self.batch_size = 64
         self.epochs = 20
-        self.valid_epoch = 1
+        self.valid_epoch = 4
+        self.valid_batch_size = 128
+
 
         self.vocab_size = 3000
         self.target_vocab_size = 3000
+
+        self.lr = 1e-8
+        self.t0 = 250
+        self.t_mult = 2
+        self.eta_min = 5e-5
