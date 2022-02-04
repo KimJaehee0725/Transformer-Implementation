@@ -9,6 +9,7 @@ from torchtext.data.utils import get_tokenizer
 from torch.utils.data import DataLoader
 from torchtext.vocab import build_vocab_from_iterator
 from torch.optim import lr_scheduler, Adam
+from torch.cuda.amp import autocast
 
 from model_build import Transformer
 from config import Config
@@ -20,21 +21,23 @@ def main():
     torch.cuda.empty_cache() 
     args = Config()
 
-    wandb.init(config = args, project = "Transofrmer_Implementation", name = "The First Trasformer Implementation")
+    wandb.init(config = args, project = "Transofrmer_Implementation", name = "Trasformer Implementation-AMP")
 
     korean_tokenizer = Mecab()
     english_tokenizer = get_tokenizer('moses')
 
-    with open(f"../data/train/korean-english-park.train.en", encoding = "utf-8")as f:
+    dataset_dir = "./datasets/korean-parallel-corpora/korean-english-news-v1"
+
+    with open(f"{dataset_dir}/train/korean-english-park.train.en", encoding = "utf-8")as f:
         train_eng = f.readlines()
         train_eng = [sentence.replace("\n", "") for sentence in train_eng]
-    with open(f"../data/train/korean-english-park.train.ko", encoding = "utf-8")as f:
+    with open(f"{dataset_dir}/train/korean-english-park.train.ko", encoding = "utf-8")as f:
         train_ko = f.readlines()
         train_ko = [sentence.replace("\n", "") for sentence in train_eng]
-    with open(f"../data/dev/korean-english-park.dev.en", encoding = "utf-8")as f:
+    with open(f"{dataset_dir}/dev/korean-english-park.dev.en", encoding = "utf-8")as f:
         valid_eng = f.readlines()
         valid_eng = [sentence.replace("\n", "") for sentence in train_eng]
-    with open(f"../data/dev/korean-english-park.dev.ko", encoding = "utf-8")as f:
+    with open(f"{dataset_dir}/dev/korean-english-park.dev.ko", encoding = "utf-8")as f:
         valid_ko = f.readlines()
         valid_ko = [sentence.replace("\n", "") for sentence in train_eng]
         
@@ -60,9 +63,11 @@ def main():
         scheduler = lr_scheduler.CosineAnnealingWarmRestarts(optimizer = optimizer, T_0 = args.t0, T_mult = args.t_mult, eta_min = args.eta_min)
         criterion = nn.NLLLoss(ignore_index = args.pad_id)
         len_train_batch = len(train_dataloader)
+
+        scaler = torch.cuda.amp.GradScaler()
         for epoch in range(args.epochs):
 
-            if epoch%args.valid_epoch == 0 :
+            if (epoch+1)%args.valid_epoch == 0 :
                 valid_loss = validation(model, validation_dataloader, args)
                 wandb.log({"valid_loss" : valid_loss, "epoch" : epoch})
         
@@ -70,7 +75,7 @@ def main():
             for num, ((source_tensor, source_pad), (target_tensor, target_pad)) in enumerate(train_dataloader):
 
                 if num%100 == 0 :
-                    print(f"{num | len_train_batch | round((num/len_train_batch), 2)*100}%", end = "\r")
+                    print(f"{num} | {len_train_batch} | {round((num/len_train_batch), 2)*100}%", end = "\r")
                 optimizer.zero_grad()
 
                 source_tensor = source_tensor.to(device)
@@ -83,17 +88,19 @@ def main():
                 target_output = target_output.to(device)
                 target_pad_tensor = torch.tensor(target_pad, device = device)
 
-                output = model(source_tensor, source_pad_tensor, target_input, target_pad_tensor)
-
-                loss = criterion(output.transpose(1, 2), target_output)
+                with autocast():
+                    output = model(source_tensor, source_pad_tensor, target_input, target_pad_tensor)
+                    loss = criterion(output.transpose(1, 2), target_output)
 
                 lr = scheduler.get_last_lr()[0]
 
                 wandb.log({"loss" : loss, 'epoch' : epoch, "lr" : lr})
 
-                loss.backward()
-
-                optimizer.step()
+                scaler.scale(loss).backward()
+                # loss.backward()
+                scaler.step(optimizer)
+                scaler.update()
+                # optimizer.step()
                 scheduler.step()
 
     def validation(model, dataloader, args):

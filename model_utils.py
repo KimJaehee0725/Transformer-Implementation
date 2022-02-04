@@ -1,3 +1,4 @@
+from cmath import inf
 import torch 
 from torch import nn
 import torch.nn.functional as F 
@@ -91,7 +92,7 @@ class MultiHeadSelfAttentionSubLayer(nn.Module): # Q, K, V : (batch_size, seq_le
         attention_result = torch.matmul(attention_matrix, V)
         return self.ffnn_layer(attention_result)
 
-    def pad_masking(self, pad_idxs, attention_score, not_mask_sign = -1e13):
+    def pad_masking(self, pad_idxs, attention_score, not_mask_sign = -inf):
         for num, pad_start in enumerate(pad_idxs) : # 각 배치마다 수행
             attention_score[num, pad_start:, pad_start:] = not_mask_sign
         return attention_score
@@ -153,7 +154,7 @@ class CrossAttentionSubLayer(nn.Module):
         attention_result = torch.matmul(attention_matrix, V)
         return self.ffnn_layer(attention_result)
 
-    def pad_masking(self, query_pad_idxs, key_pad_idxs, attention_score, not_mask_sign = -1e13):
+    def pad_masking(self, query_pad_idxs, key_pad_idxs, attention_score, not_mask_sign = -inf):
         for num, (query_pad, key_pad) in enumerate(zip(query_pad_idxs, key_pad_idxs)) : # 각 배치마다 수행
             attention_score[num, query_pad:, key_pad:] = not_mask_sign
         return attention_score
@@ -174,12 +175,12 @@ class MaskedMultiheadSelfAttentionLayer(nn.Module):
         attention_result = torch.matmul(attention_matrix, V)
         return self.ffnn_layer(attention_result)
 
-    def pad_masking(self, pad_idxs, attention_score, not_attention_sign = -1e13):
+    def pad_masking(self, pad_idxs, attention_score, not_attention_sign = -inf):
         for num, pad_start in enumerate(pad_idxs) : # 각 배치마다 수행
             attention_score[num, pad_start:, pad_start:] = not_attention_sign
         return attention_score
     
-    def self_masking(self, attention_score, not_attention_sign = -1e13):
+    def self_masking(self, attention_score, not_attention_sign = -inf):
         for num in range(attention_score.size()[1]) : # 배치 동시 수행
             attention_score[:, num, (num+1):] = not_attention_sign
         return attention_score
