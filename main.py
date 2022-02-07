@@ -47,7 +47,7 @@ def main():
     korean_vocab = build_vocab_from_iterator(yield_tokens(train_ko, korean_tokenizer, is_korean = True), min_freq = 5, specials = ('<unk>', '<BOS>', '<EOS>', "<PAD>"))
     english_vocab = build_vocab_from_iterator(yield_tokens(train_eng, english_tokenizer, is_korean=False), min_freq = 5, specials = ('<unk>', '<BOS>', '<EOS>', "<PAD>"))
 
-    train_dataset = CustomDataset(train_eng[:1000], train_ko[:1000], korean_vocab, english_vocab, korean_tokenizer, english_tokenizer, args)
+    train_dataset = CustomDataset(train_eng, train_ko, korean_vocab, english_vocab, korean_tokenizer, english_tokenizer, args)
     train_dataloader = DataLoader(train_dataset, batch_size = args.batch_size, collate_fn = collate_fn, shuffle = True, drop_last = True)
 
     valid_dataset = CustomDataset(valid_eng, valid_ko, korean_vocab, english_vocab, korean_tokenizer, english_tokenizer, args)

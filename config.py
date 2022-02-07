@@ -1,7 +1,8 @@
+import torch
 class Config():
     def __init__(self) -> None:
         self.is_sinusoidal = False
-        self.max_len = 128     
+        self.max_len = 32     
 
         self.model_dim = 512   
         self.embed_dim = 512
@@ -15,8 +16,10 @@ class Config():
         self.sos_token = "<BOS>"
         self.eos_token = "<EOS>"
 
+        self.bos_id = 1
+        self.eos_id = 2
         self.pad_id = 3
-
+        
         self.batch_size = 64
         self.epochs = 20
         self.valid_epoch = 4
@@ -29,4 +32,6 @@ class Config():
         self.lr = 1e-8
         self.t0 = 250
         self.t_mult = 2
-        self.eta_min = 5e-5
+        self.eta_min = 1e-4
+
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
