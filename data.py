@@ -60,7 +60,7 @@ class CustomDataset(Dataset):
             except:
                 token_id = unk_id
             result.append(token_id)
-        return result
+        return result       
     
 def collate_fn(batch):
     source_tensor = torch.full(size = (len(batch), args.max_len), fill_value = args.pad_id)

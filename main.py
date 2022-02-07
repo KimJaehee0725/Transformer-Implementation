@@ -21,12 +21,15 @@ def main():
     torch.cuda.empty_cache() 
     args = Config()
 
-    wandb.init(config = args, project = "Transofrmer_Implementation", name = "Trasformer Implementation-AMP")
+    wandb.init(config = args, project = "Transofrmer_Implementation", name = "Trasformer Implementation-Inference")
+    # wandb.init(config = args, project = "Debugging", name = "test time inference")
+
+    text_table = wandb.Table(columns = ["epoch", "loss", "generated", "real"])
 
     korean_tokenizer = Mecab()
     english_tokenizer = get_tokenizer('moses')
 
-    dataset_dir = "./datasets/korean-parallel-corpora/korean-english-news-v1"
+    dataset_dir = "../../datasets/korean-parallel-corpora/korean-english-news-v1"
 
     with open(f"{dataset_dir}/train/korean-english-park.train.en", encoding = "utf-8")as f:
         train_eng = f.readlines()
@@ -44,7 +47,7 @@ def main():
     korean_vocab = build_vocab_from_iterator(yield_tokens(train_ko, korean_tokenizer, is_korean = True), min_freq = 5, specials = ('<unk>', '<BOS>', '<EOS>', "<PAD>"))
     english_vocab = build_vocab_from_iterator(yield_tokens(train_eng, english_tokenizer, is_korean=False), min_freq = 5, specials = ('<unk>', '<BOS>', '<EOS>', "<PAD>"))
 
-    train_dataset = CustomDataset(train_eng, train_ko, korean_vocab, english_vocab, korean_tokenizer, english_tokenizer, args)
+    train_dataset = CustomDataset(train_eng[:1000], train_ko[:1000], korean_vocab, english_vocab, korean_tokenizer, english_tokenizer, args)
     train_dataloader = DataLoader(train_dataset, batch_size = args.batch_size, collate_fn = collate_fn, shuffle = True, drop_last = True)
 
     valid_dataset = CustomDataset(valid_eng, valid_ko, korean_vocab, english_vocab, korean_tokenizer, english_tokenizer, args)
@@ -68,14 +71,14 @@ def main():
         for epoch in range(args.epochs):
 
             if (epoch+1)%args.valid_epoch == 0 :
-                valid_loss = validation(model, validation_dataloader, args)
+                valid_loss = validation(model, validation_dataloader, epoch, args)
                 wandb.log({"valid_loss" : valid_loss, "epoch" : epoch})
         
-            print("training step 시작")
+            print(f"training step 시작 | {epoch + 1} | {round((epoch +1)/args.epochs * 100, 2)}%")
             for num, ((source_tensor, source_pad), (target_tensor, target_pad)) in enumerate(train_dataloader):
 
                 if num%100 == 0 :
-                    print(f"{num} | {len_train_batch} | {round((num/len_train_batch), 2)*100}%", end = "\r")
+                    print(f"{num} | {len_train_batch} | {round((num/len_train_batch)*100, 2)}%", end = "\r")
                 optimizer.zero_grad()
 
                 source_tensor = source_tensor.to(device)
@@ -103,7 +106,7 @@ def main():
                 # optimizer.step()
                 scheduler.step()
 
-    def validation(model, dataloader, args):
+    def validation(model, dataloader, epoch, args):
         print("validation step 시작")
         device = torch.device("cuda")
         model.to(device)
@@ -127,11 +130,25 @@ def main():
                 target_output = target_output.to(device)
                 target_pad_tensor = torch.tensor(target_pad, device = device)
 
-                output = model(source_tensor, source_pad_tensor, target_input, target_pad_tensor)
+                output = model(source_tensor, source_pad_tensor, target_input, target_pad_tensor, train = False)
 
                 loss = criterion(output.transpose(1, 2), target_output).detach().cpu().numpy()
 
                 loss_total += loss.sum()
+
+                if num in [0, 1] :
+                    generated = []
+                    for samples in output[:10, :, :]:
+                        generated.append(torch.argmax(samples, dim = 1).cpu().tolist())
+                    generated = [[token for token in sentence if token != args.pad_id] for sentence in generated ]
+                    generated = [english_vocab.lookup_tokens(sentence) for sentence in generated]
+                    generated = [" ".join(sentence) for sentence in generated]
+
+                    label = [[token for token in sentence if token != args.pad_id] for sentence in target_output[:10, :].cpu().tolist()]
+                    label = [" ".join(english_vocab.lookup_tokens(sentence)) for sentence in  label]
+                    for gener, lab in zip(generated, label) : 
+                        text_table.add_data(epoch, loss, gener, lab)
+                    wandb.log({f"valid_samples{epoch}" : text_table})
         print("validation step 종료")
         return loss_total/batch_len
 

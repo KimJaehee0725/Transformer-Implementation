@@ -15,14 +15,15 @@ class EmbeddingLayer(nn.Module):
         self.embedding = nn.Sequential(self.token_embedding, self.PEembedding)
         self.dropout_layer = nn.Dropout(args.embedding_dropout_ratio)
         self.pad_id = args.pad_id
+        self.device = args.device
 
     def forward(self, token_tensor, pad_idxs = None): # token_tensor :(batch, seq_len)
         summed = self.embedding(token_tensor)
         output = self.dropout_layer(summed)
 
         if pad_idxs == None:
-            index_tensor = torch.tensor([[i for i in range(token_tensor.size()[1])] for batch in range(token_tensor.size()[0])])
-            masking = (token_tensor != self.pad_id)
+            index_tensor = torch.tensor([[i for i in range(token_tensor.size()[1])] for batch in range(token_tensor.size()[0])], device=self.device)
+            masking = (token_tensor != self.pad_id).to(self.device)
             not_pad_mask = index_tensor*masking
             pad_idxs = torch.max(not_pad_mask, dim = 1).values + 1
             
