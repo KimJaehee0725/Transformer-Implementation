@@ -26,6 +26,8 @@ class Transformer(nn.Module) :
         self.model_head = DecoderHeadLayer(args)
     
     def forward(self, input_seq, input_pad_idx, target_seq = None, target_pad_idx = None, train = True) :
+        batch_size = input_seq.shape[0]
+
         embedded_input, input_pad_idx = self.InputEmbedding(input_seq, input_pad_idx)
         encoder_output = embedded_input
         for encoder_block in self.EncoderBlocks:
@@ -40,7 +42,7 @@ class Transformer(nn.Module) :
             return self.model_head(decoder_output)
         
         else: # 실제 inference 상황
-            decoder_tokens = torch.full(size = (self.valid_batch_size, self.max_len+1), fill_value = self.pad_id, dtype = torch.long, device = self.device)
+            decoder_tokens = torch.full(size = (batch_size, self.max_len+1), fill_value = self.pad_id, dtype = torch.long, device = self.device)
             decoder_tokens[:, 0] = self.bos_id
             embedded_decoder_input, target_pad_idx = self.TargetEmbedding(decoder_tokens[:, -1:])
             
