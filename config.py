@@ -2,7 +2,7 @@ import torch
 class Config():
     def __init__(self) -> None:
         self.is_sinusoidal = False
-        self.max_len = 32     
+        self.max_len = 64     
 
         self.model_dim = 512   
         self.embed_dim = 512
@@ -21,17 +21,20 @@ class Config():
         self.pad_id = 3
         
         self.batch_size = 64
-        self.epochs = 20
-        self.valid_epoch = 4
+        self.epochs = 100
+        self.valid_epoch = 5
         self.valid_batch_size = 128
 
 
         self.vocab_size = 3000
         self.target_vocab_size = 3000
-
-        self.lr = 1e-8
-        self.t0 = 250
+        
+        self.max_norm = 1
+        self.lr = 5e-7
+        self.t0 = 500
         self.t_mult = 2
-        self.eta_min = 1e-4
+        self.eta_max = 0.00005
+        self.T_up = 30 
+        self.gamma = 0.9
 
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
